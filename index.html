@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>WebXR Punch Counter</title>
+  <title>WebXR Speed-Bag Simulation</title>
   <style>
     body { margin: 0; overflow: hidden; font-family: sans-serif; }
     #hud {
@@ -32,6 +32,8 @@
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+  camera.position.set(0, 1.6, 3);
+
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.xr.enabled = true;
@@ -42,6 +44,36 @@
   const light = new THREE.HemisphereLight(0xffffff, 0x444444);
   light.position.set(0, 1, 0);
   scene.add(light);
+
+  // Speed bag setup
+  const bagGeometry = new THREE.SphereGeometry(0.15, 32, 32);
+  const bagMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+  const speedBag = new THREE.Mesh(bagGeometry, bagMaterial);
+  speedBag.position.set(0, 1.5, -1);
+  scene.add(speedBag);
+
+  // Audio setup
+  const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  function playPunchSound() {
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+
+    oscillator.type = 'square';
+    oscillator.frequency.setValueAtTime(600, audioContext.currentTime);
+    gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+
+    oscillator.start();
+    oscillator.stop(audioContext.currentTime + 0.05);
+  }
+
+  // Variables for bag swing simulation
+  let bagSwingAngle = 0;
+  let bagSwingVelocity = 0;
+  const bagSwingDamping = 0.95;
+  const bagSwingStiffness = 0.02;
 
   // Controller setup
   const controllers = [];
@@ -83,6 +115,12 @@
       punchTimes[i].push(performance.now());
 
       document.getElementById(i === 0 ? "leftCount" : "rightCount").textContent = punchCounts[i];
+
+      // Apply impulse to bag swing velocity based on punch power
+      bagSwingVelocity += punchPower * (i === 0 ? -1 : 1) * 0.05; // left punches swing left, right punches swing right
+
+      // Play punch sound
+      playPunchSound();
     }
 
     prev.copy(pos);
@@ -112,6 +150,16 @@
 
     updatePPM(0);
     updatePPM(1);
+
+    // Update bag swing physics
+    const targetAngle = 0;
+    const force = -bagSwingStiffness * bagSwingAngle;
+    bagSwingVelocity += force;
+    bagSwingVelocity *= bagSwingDamping;
+    bagSwingAngle += bagSwingVelocity;
+
+    // Apply swing rotation around Y axis
+    speedBag.rotation.z = bagSwingAngle;
 
     renderer.render(scene, camera);
   });
