@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>WebXR Punch Counter</title>
+  <style>
+    body { margin: 0; overflow: hidden; font-family: sans-serif; }
+    #hud {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      color: white;
+      background: rgba(0,0,0,0.4);
+      padding: 10px;
+      border-radius: 6px;
+      font-size: 18px;
+    }
+  </style>
+</head>
+<body>
+
+<div id="hud">
+  <div>Left punches: <span id="leftCount">0</span></div>
+  <div>Right punches: <span id="rightCount">0</span></div>
+  <div>Left PPM: <span id="leftPPM">0</span></div>
+  <div>Right PPM: <span id="rightPPM">0</span></div>
+</div>
+
+<script type="module">
+  import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.161/build/three.module.js';
+  import { VRButton } from 'https://cdn.jsdelivr.net/npm/three@0.161/examples/jsm/webxr/VRButton.js';
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.xr.enabled = true;
+  document.body.appendChild(renderer.domElement);
+  document.body.appendChild(VRButton.createButton(renderer));
+
+  // Lighting
+  const light = new THREE.HemisphereLight(0xffffff, 0x444444);
+  light.position.set(0, 1, 0);
+  scene.add(light);
+
+  // Controller setup
+  const controllers = [];
+  const prevPositions = [new THREE.Vector3(), new THREE.Vector3()];
+  const punchCounts = [0, 0];
+  const punchTimes = [[], []]; // timestamps for PPM calculation
+
+  function setupController(i) {
+    const controller = renderer.xr.getController(i);
+    scene.add(controller);
+    controllers.push(controller);
+  }
+
+  setupController(0); // left
+  setupController(1); // right
+
+  // Punch detection parameters
+  const SPEED_THRESHOLD = 2.5; // m/s forward
+  const FORWARD = new THREE.Vector3(0, 0, -1);
+
+  function detectPunch(i, dt) {
+    const controller = controllers[i];
+    if (!controller) return;
+
+    const pos = new THREE.Vector3();
+    controller.getWorldPosition(pos);
+
+    const prev = prevPositions[i];
+    const velocity = pos.clone().sub(prev).divideScalar(dt);
+
+    // Transform forward direction into world space
+    const forwardWorld = FORWARD.clone().applyQuaternion(controller.quaternion);
+
+    // Punch = high velocity in forward direction
+    const punchPower = velocity.dot(forwardWorld);
+
+    if (punchPower > SPEED_THRESHOLD) {
+      punchCounts[i]++;
+      punchTimes[i].push(performance.now());
+
+      document.getElementById(i === 0 ? "leftCount" : "rightCount").textContent = punchCounts[i];
+    }
+
+    prev.copy(pos);
+  }
+
+  function updatePPM(i) {
+    const now = performance.now();
+    const oneMinuteAgo = now - 60000;
+
+    // Keep only punches in last 60 seconds
+    punchTimes[i] = punchTimes[i].filter(t => t > oneMinuteAgo);
+
+    const ppm = punchTimes[i].length;
+    document.getElementById(i === 0 ? "leftPPM" : "rightPPM").textContent = ppm;
+  }
+
+  // Animation loop
+  let lastTime = performance.now();
+
+  renderer.setAnimationLoop(() => {
+    const now = performance.now();
+    const dt = (now - lastTime) / 1000;
+    lastTime = now;
+
+    detectPunch(0, dt);
+    detectPunch(1, dt);
+
+    updatePPM(0);
+    updatePPM(1);
+
+    renderer.render(scene, camera);
+  });
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+</script>
+
+</body>
+</html>
